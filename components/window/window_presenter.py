@@ -82,6 +82,7 @@ class WindowPresenter:
         self.page_home.SignalNoFiles.connect(self.finished_by_no_files)
         self.page_home.SignalExistsTempFolder.connect(self.finished_by_temp_folder)
         self.page_home.SignalError7ZipPath.connect(self.finished_by_error_7zip_path)
+        self.page_home.SignalErrorWinRARPath.connect(self.finished_by_error_winrar_path)
         self.page_home.UserStop.connect(self.finished_by_user_stop)
         self.page_home.UserStopAfter.connect(self.finished_by_user_stop_after_current)
         self.page_home.OpenAbout.connect(self.open_about)
@@ -292,6 +293,16 @@ class WindowPresenter:
         self.page_home.allowed_drop()
 
         self.page_home.set_info_error_7zip_path()
+
+    def finished_by_error_winrar_path(self, path: str = ''):
+        """提前终止：由于主页模块信号-WinRAR路径错误"""
+        # 解锁设置项
+        self.page_setting.unlock_setting()
+
+        # 启用主页的拖入功能
+        self.page_home.allowed_drop()
+
+        self.page_home.set_info_error_winrar_path()
 
     def finished_by_user_stop(self):
         """提前终止：用户主动终止"""

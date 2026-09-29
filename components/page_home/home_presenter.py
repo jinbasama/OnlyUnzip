@@ -22,6 +22,7 @@ class HomePresenter(QObject):
     SignalNoFiles = Signal(name='没有需要处理的文件')
     SignalExistsTempFolder = Signal(str, name='存在临时文件夹，接收临时文件夹路径参数')
     SignalError7ZipPath = Signal(name='7zip路径错误')
+    SignalErrorWinRARPath = Signal(name='WinRAR路径错误')
     OpenAbout = Signal(name="打开关于页")
     OpenTempPassword = Signal(name="打开临时密码页")
     AskUpdateSetting = Signal(name="请求更新选项参数")
@@ -69,9 +70,13 @@ class HomePresenter(QObject):
         :param paths: 文件路径
         :param is_recursive: 是否是递归解压模式进行的文件操作"""
         print('接收文件列表，进行后续处理')
-        # 检查7zip路径
-        _7zip_path = function_7zip.get_7zip_path()
-        if not _7zip_path or not os.path.exists(_7zip_path):
+        # 检查解压内核与对应的可执行文件路径（内核为WinRAR时不回退到7zip，直接终止）
+        kernel, kernel_path = function_7zip.get_kernel_config()
+        if kernel == function_7zip.KERNEL_WINRAR:
+            if not function_7zip.is_valid_winrar_path(kernel_path):
+                self.SignalErrorWinRARPath.emit()
+                return
+        elif not kernel_path or not os.path.exists(kernel_path):
             self.SignalError7ZipPath.emit()
             return
 
@@ -221,8 +226,8 @@ class HomePresenter(QObject):
         self.viewer.set_current_password(password)
 
     def set_progress_extract(self, progress: int):
-        """设置解压的进度 1%
-        :param progress: 0~100的整数"""
+        """设置解压的进度
+        :param progress: 0~100的整数（进度百分比）；负数表示不定进度（该内核无法提供进度信息）"""
         self.viewer.set_progress_extract(progress)
 
     def set_current_file_step_tip(self, tip: str):
@@ -291,6 +296,16 @@ class HomePresenter(QObject):
         self.model.stop_timing()
         # 显示步骤信息
         info = "7Zip路径错误，请检查自定义路径"
+        self.set_step_notice(info)
+
+    def set_info_error_winrar_path(self):
+        """设置运行状态 终止（WinRAR路径错误）"""
+        # 修改图标
+        self.set_icon_warning()
+        # 停止计时器
+        self.model.stop_timing()
+        # 显示步骤信息
+        info = "WinRAR路径错误，请检查设置中的WinRAR路径（或切换回7-Zip内核）"
         self.set_step_notice(info)
 
     def set_info_finished(self, result_info: str, result_info_tip: str = ''):

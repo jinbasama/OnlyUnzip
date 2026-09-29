@@ -158,10 +158,23 @@ class HomeViewer(QWidget):
         self.label_right_password.set_text(password)
 
     def set_progress_extract(self, progress: int):
-        """设置解压的进度 1%
-        :param progress: 0~100的整数"""
+        """设置解压的进度
+        :param progress: 0~100的整数（进度百分比）；负数表示不定进度（该内核无法提供进度信息）"""
         self.set_child_page_extract()
-        self.ui.progressBar_progress_extract.setValue(progress)
+        progress_bar = self.ui.progressBar_progress_extract
+        if progress < 0:
+            # 切换到不定进度
+            progress_bar.setRange(0, 0)
+            progress_bar.setFormat('解压中')
+        elif progress >= 100:
+            # 完成后必须复位为确定进度，防止不定进度状态残留到下一个任务
+            progress_bar.setRange(0, 100)
+            progress_bar.setFormat('%p%')
+            progress_bar.setValue(100)
+        else:
+            progress_bar.setRange(0, 100)
+            progress_bar.setFormat('%p%')
+            progress_bar.setValue(progress)
 
     def set_current_file_step_tip(self, tip: str):
         """设置当前处理的文件的步骤提示"""

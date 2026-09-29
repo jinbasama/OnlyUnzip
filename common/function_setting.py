@@ -30,3 +30,15 @@ def get_7zip_path():
     """获取指定的7zip路径，若未指定则返回空"""
     setting_presenter = components.page_setting.get_presenter().model
     return setting_presenter.get_7zip_path()
+
+
+def get_kernel():
+    """获取当前的解压内核（7zip/winrar）"""
+    setting_presenter = components.page_setting.get_presenter().model
+    return setting_presenter.get_kernel()
+
+
+def get_winrar_path():
+    """获取指定的WinRAR路径，若未指定则返回空"""
+    setting_presenter = components.page_setting.get_presenter().model
+    return setting_presenter.get_winrar_path()

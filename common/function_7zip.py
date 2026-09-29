@@ -4,31 +4,78 @@ import subprocess
 from typing import Union
 
 from common import function_queue, function_setting
-from common.class_7zip import Result7zip, TYPES_RESULT_7ZIP
+from common.class_7zip import Result7zip, TYPES_RESULT_7ZIP, ModelCoverFile, Kernel
 from common.function_extract import TEMP_EXTRACT_FOLDER
 
 FAKE_PASSWORD = 'FAKEPASSWORD'
-# _7ZIP_PATH = r'./7-Zip/7z.exe'
+
+# 解压内核
+KERNEL_7ZIP = Kernel.SevenZip.value  # 7zip，默认内核
+KERNEL_WINRAR = Kernel.WinRAR.value  # winrar
+
+# 进度通道的约定值（通过function_queue发送给界面）
+PROGRESS_INDETERMINATE = -1  # 不定进度（无法获取进度信息的内核使用，例如WinRAR）
+PROGRESS_COMPLETE = 100  # 完成（用于复位界面的确定进度状态）
+
+_DEFAULT_7ZIP_PATH = r'./7-Zip/7z.exe'
+_DEFAULT_WINRAR_PATH = r'C:/Program Files/WinRAR/WinRAR.exe'
+_WINRAR_EXE_NAME = 'WinRAR.exe'
+# WinRAR没有从文件读取密码的机制，且Windows命令行无法表达含双引号的参数
+_WINRAR_QUOTE_PW_ERROR = '密码中含双引号，WinRAR内核无法传入该密码，请切回7-Zip内核后重试'
+
+# WinRAR的退出码含义（官方文档，与7-Zip的退出码完全不同）
+# 0成功 1警告 2致命 3校验和无效 4锁定包 5写错 6打开错 7命令行选项错 8内存不足 9创建错
+# 10未匹配掩码 11密码错 12读错 13坏归档 255用户中断
+_WINRAR_RETURN_TEXTS = {2: '致命错误', 3: '数据校验失败', 4: '已锁定的压缩包', 5: '写入错误',
+                        6: '打开文件错误', 9: '创建文件错误', 12: '读取错误', 13: '压缩包损坏'}
+
+# 覆盖模式：7-Zip的switch → WinRAR的switch（WinRAR只有跳过/覆盖/重命名三档）
+_SWITCHES_COVER_WINRAR = {ModelCoverFile.Skip.switch: ModelCoverFile.Skip.switch_winrar,
+                          ModelCoverFile.Overwrite.switch: ModelCoverFile.Overwrite.switch_winrar,
+                          ModelCoverFile.RenameNew.switch: ModelCoverFile.Rename.switch_winrar,
+                          ModelCoverFile.RenameOld.switch: ModelCoverFile.Rename.switch_winrar}
+
 _process_running: subprocess.Popen = None  # 正在运行的线程，用于中断
 _CMD_PW_TEXT_FILE = 'cmd_pw.txt'  # 临时使用的密码文件（专用于处理带特殊字符（例如"、^）的密码，双引号不能作为参数传入进程，但可以通过读取文件传入）
 
 
-# def update_7zip_path():
-#     """更新7zip路径"""
-#     global _7ZIP_PATH
-#     setting_path = function_setting.get_7zip_path()
-#     if setting_path:
-#         _7ZIP_PATH = function_setting.get_7zip_path()
-
 def get_7zip_path() -> str:
-    """获取7zip路径"""
-    path_setting = function_setting.get_7zip_path()
-    if path_setting:
-        _7zip_path = function_setting.get_7zip_path()
-    else:
-        _7zip_path = r'./7-Zip/7z.exe'
+    """获取7zip路径
+    :return: 设置中指定的路径，未指定时返回程序自带的7zip路径"""
+    return function_setting.get_7zip_path() or _DEFAULT_7ZIP_PATH
 
-    return _7zip_path
+
+def get_winrar_path() -> str:
+    """获取WinRAR路径
+    :return: 设置中指定的路径，未指定时返回WinRAR的默认安装路径"""
+    return function_setting.get_winrar_path() or _DEFAULT_WINRAR_PATH
+
+
+def get_kernel_config():
+    """获取当前的解压内核与对应的可执行文件路径（内核与路径的唯一解析入口）
+    :return: (内核取值，可执行文件路径)，内核取值为KERNEL_7ZIP/KERNEL_WINRAR"""
+    kernel = function_setting.get_kernel()
+    if kernel not in (KERNEL_7ZIP, KERNEL_WINRAR):  # 无效取值回落到默认内核
+        kernel = KERNEL_7ZIP
+
+    if kernel == KERNEL_WINRAR:
+        path = get_winrar_path()
+    else:
+        path = get_7zip_path()
+
+    return kernel, path
+
+
+def is_valid_winrar_path(path: str) -> bool:
+    """检查WinRAR路径是否可用（文件存在且文件名为WinRAR.exe）"""
+    if not path or not os.path.exists(path):
+        return False
+    return os.path.basename(path) == _WINRAR_EXE_NAME
+
+
+def is_password_unsupported_by_winrar(password: str) -> bool:
+    """检查密码是否无法通过WinRAR内核传入（含双引号的密码）"""
+    return '"' in password
 
 
 def get_running_process():
@@ -77,6 +124,123 @@ def delete_cmd_pw_file():
         os.remove(_CMD_PW_TEXT_FILE)
 
 
+def get_part_password_7zip(password: str) -> str:
+    """获取7-Zip的密码参数（带特殊字符的密码会创建临时密码文件）
+    :return: -p<pw>，需要临时密码文件时为-y<cmd_pw.txt"""
+    if is_need_local_pw_file(password):  # 对带特殊字符的密码进行特殊处理
+        create_cmd_pw_file(password)  # 创建临时密码文件
+        return f'-y<{_CMD_PW_TEXT_FILE}'
+    return f'-p{password}'
+
+
+def get_part_password_winrar(password: str) -> str:
+    """获取WinRAR的密码参数（WinRAR没有临时密码文件机制）
+    :return: -p<pw>，密码为空时返回空文本（WinRAR的-p后不带密码时会弹出密码输入框，必须避免）"""
+    return f'-p{password}' if password else ''
+
+
+def get_cover_switch_winrar(cover_switch: str) -> str:
+    """将7-Zip的覆盖模式switch转换为WinRAR的覆盖模式switch
+    :param cover_switch: 7-Zip的覆盖模式switch（例如-aos）"""
+    return _SWITCHES_COVER_WINRAR.get(cover_switch, cover_switch)
+
+
+def convert_filter_rule_winrar(filter_rule: list) -> list:
+    """将7-Zip的过滤规则转换为WinRAR的过滤规则（-xr!<mask> → -x<mask>）"""
+    rules = []
+    for rule in filter_rule:
+        if rule.startswith('-xr!'):
+            rule = '-x' + rule[len('-xr!'):]
+        rules.append(rule)
+    return rules
+
+
+def _join_command(command: list) -> str:
+    """清理并拼接命令行（shell=True使用）"""
+    return ' '.join([i for i in command if i and i.strip()])
+
+
+def _clean_args(args: list) -> list:
+    """清理argv列表命令行（shell=False使用）"""
+    return [i for i in args if i]
+
+
+def _get_part_inside(inside_path: str) -> str:
+    """获取内部文件路径参数"""
+    return f'"{inside_path}"' if inside_path else ''
+
+
+def build_command_l(_7zip_path: str, file: str, part_password: str = '', inside_path: str = '') -> str:
+    """构造l（列表）命令，固定使用7-Zip"""
+    command = [f'"{_7zip_path}"',
+               'l',
+               f'"{file}"',
+               part_password,
+               _get_part_inside(inside_path)]
+    return _join_command(command)
+
+
+def build_command_t_7zip(_7zip_path: str, file: str, part_password: str = '', inside_path: str = '') -> str:
+    """构造t（测试）命令，7-Zip内核"""
+    command = [f'"{_7zip_path}"',
+               't',
+               f'"{file}"',
+               part_password,
+               _get_part_inside(inside_path)]
+    return _join_command(command)
+
+
+def build_command_x_7zip(_7zip_path: str, file: str, part_password: str, cover_switch: str,
+                         output_folder: str, filter_rule: list = None) -> str:
+    """构造x（解压）命令，7-Zip内核"""
+    command = [f'"{_7zip_path}"',
+               'x',
+               f'"{file}"',
+               '-bsp1', '-bse1', '-bso1',
+               cover_switch,
+               part_password,
+               f'"-o{output_folder}"']
+    if filter_rule:
+        command = command + filter_rule
+    return _join_command(command)
+
+
+def build_command_t_winrar(winrar_path: str, file: str, password: str) -> list:
+    """构造t（测试）命令，WinRAR内核
+    注意：-ibck下WinRAR无任何输出，只能依靠退出码判断结果
+    （实测t命令也支持在压缩包路径后追加内部文件参数，此处不追加，保持整包测试）"""
+    command = [winrar_path,
+               't',
+               '-ibck',  # 后台运行，不显示窗口
+               '-inul',  # 不显示信息
+               get_part_password_winrar(password),
+               file]
+    return _clean_args(command)
+
+
+def build_command_x_winrar(winrar_path: str, file: str, password: str, cover_switch: str,
+                           output_folder: str, filter_rule: list = None) -> list:
+    """构造x（解压）命令，WinRAR内核
+    :param cover_switch: 7-Zip的覆盖模式switch，内部转换为WinRAR的-o参数"""
+    command = [winrar_path,
+               'x',
+               '-ibck',  # 后台运行，不显示窗口
+               '-inul',  # 不显示信息
+               '-y',  # 全部询问均回答“是”
+               get_cover_switch_winrar(cover_switch),
+               get_part_password_winrar(password),
+               file,
+               _get_winrar_output_folder(output_folder)]
+    if filter_rule:
+        command = command + convert_filter_rule_winrar(filter_rule)
+    return _clean_args(command)
+
+
+def _get_winrar_output_folder(output_folder: str) -> str:
+    """获取WinRAR的解压目录参数（结尾的反斜杠用于与文件名参数区分）"""
+    return output_folder.rstrip('\\/') + '\\'
+
+
 def _process_7zip_with_run(_7zip_command: Union[str, list]):
     """使用run调用7zip执行传入语句（直接返回结果，不需要实时读取管道信息）
     :param _7zip_command: 7zip命令行"""
@@ -97,31 +261,30 @@ def _process_7zip_with_run(_7zip_command: Union[str, list]):
     return process
 
 
-def process_7zip_l(_7zip_path: str, file: str, password: str, inside_path: str = ''):
-    """测试指定文件的密码
-    :param _7zip_path: 7zip路径
+def _process_winrar_with_run(_winrar_command: list):
+    """使用run调用WinRAR执行传入的argv列表（不经过shell，密码等参数不会被转义）
+    :param _winrar_command: WinRAR命令行（argv列表）"""
+    print(f'调用WinRAR（run）：{_winrar_command}')
+    process = subprocess.run(_winrar_command,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             creationflags=subprocess.CREATE_NO_WINDOW,
+                             text=True,
+                             shell=False)
+    print('返回码', process.returncode)
+    print('错误信息', process.stderr)
+    return process
+
+
+def process_7zip_l(file: str, password: str, inside_path: str = ''):
+    """测试指定文件的密码（列表命令，固定使用7-Zip：WinRAR内核没有可用的列表接口）
     :param file: 需要测试的文件路径
     :param password: 需要测试的密码
     :param inside_path: 单独测试的内部文件路径
     :return: 7zip结果类"""
-    # 编写列表命令行
-    if is_need_local_pw_file(password):  # 对带特殊字符的密码进行特殊处理
-        create_cmd_pw_file(password)  # 创建临时密码文件
-        part_password = f'-y<{_CMD_PW_TEXT_FILE}'
-    else:
-        part_password = f'-p{password}'
-    if inside_path:
-        part_inside = f'"{inside_path}"'
-    else:
-        part_inside = ''
-    command = [f'"{_7zip_path}"',
-               'l',
-               f'"{file}"',
-               part_password,
-               part_inside]
-    command = [i for i in command if i and i.strip()]  # 清理一次列表命令行
-    # 将列表命令行组合为字符串（shell=True）
-    command = ' '.join(command)
+    # 编写命令行
+    part_password = get_part_password_7zip(password)
+    command = build_command_l(get_7zip_path(), file, part_password, inside_path)
     # 调用
     process = _process_7zip_with_run(command)
     # 处理调用结果
@@ -133,31 +296,19 @@ def process_7zip_l(_7zip_path: str, file: str, password: str, inside_path: str =
     return _7zip_result
 
 
-def process_7zip_t(_7zip_path: str, file: str, password: str, inside_path: str = ''):
-    """测试指定文件的密码
-    :param _7zip_path: 7zip路径
+def process_7zip_t(file: str, password: str, inside_path: str = ''):
+    """测试指定文件的密码（按内核分派：7-Zip使用t命令，WinRAR使用t命令）
     :param file: 需要测试的文件路径
     :param password: 需要测试的密码
-    :param inside_path: 如果测试的文件是压缩文件，则可以尝试仅测试压缩文件内部的其中1个文件
+    :param inside_path: 如果测试的文件是压缩文件，则可以尝试仅测试压缩文件内部的其中1个文件（仅7-Zip内核支持）
     :return: 7zip结果类"""
-    # 编写列表命令行
-    if is_need_local_pw_file(password):  # 对带特殊字符的密码进行特殊处理
-        create_cmd_pw_file(password)  # 创建临时密码文件
-        part_password = f'-y<{_CMD_PW_TEXT_FILE}'
-    else:
-        part_password = f'-p{password}'
-    if inside_path:
-        part_inside = f'"{inside_path}"'
-    else:
-        part_inside = ''
-    command = [f'"{_7zip_path}"',
-               't',
-               f'"{file}"',
-               part_password,
-               part_inside]
-    command = [i for i in command if i and i.strip()]  # 清理一次列表命令行
-    # 将列表命令行组合为字符串（shell=True）
-    command = ' '.join(command)
+    kernel, kernel_path = get_kernel_config()
+    if kernel == KERNEL_WINRAR:
+        return process_winrar_t(kernel_path, file, password)
+
+    # 编写命令行
+    part_password = get_part_password_7zip(password)
+    command = build_command_t_7zip(kernel_path, file, part_password, inside_path)
     # 调用
     process = _process_7zip_with_run(command)
     # 处理调用结果
@@ -169,9 +320,43 @@ def process_7zip_t(_7zip_path: str, file: str, password: str, inside_path: str =
     return _7zip_result
 
 
-def process_7zip_x(_7zip_path: str, file: str, password: str, cover_model: str, output_folder: str,
-                   filter_rule: list = None):
-    """解压指定文件
+def process_winrar_t(winrar_path: str, file: str, password: str):
+    """测试指定文件的密码（WinRAR内核，只能依靠退出码判断结果）
+    :param winrar_path: WinRAR路径
+    :param file: 需要测试的文件路径
+    :param password: 需要测试的密码
+    :return: 7zip结果类"""
+    if is_password_unsupported_by_winrar(password):  # 无法传入的密码，直接返回失败结果
+        return Result7zip.ErrorCommand(_WINRAR_QUOTE_PW_ERROR)
+
+    command = build_command_t_winrar(winrar_path, file, password)
+    process = _process_winrar_with_run(command)
+    result = get_result_by_winrar_return_code(process.returncode)
+    # 结果为”成功“时将正确密码写入结果类中
+    if isinstance(result, Result7zip.Success):
+        result.password = password
+
+    return result
+
+
+def process_7zip_x(file: str, password: str, cover_model: str, output_folder: str, filter_rule: list = None):
+    """解压指定文件（按内核分派）
+    :param file: 需要解压的文件路径
+    :param password: 解压时使用的密码（附带测试功能）
+    :param cover_model: 重名文件的覆盖模式（7-Zip的switch）
+    :param output_folder: 解压输出目录
+    :param filter_rule: 文件过滤器规则（7-Zip的-xr!格式）
+    :return: 7zip结果类"""
+    kernel, kernel_path = get_kernel_config()
+    if kernel == KERNEL_WINRAR:
+        return process_winrar_x(kernel_path, file, password, cover_model, output_folder, filter_rule)
+    else:
+        return _process_7zip_x_with_7zip(kernel_path, file, password, cover_model, output_folder, filter_rule)
+
+
+def _process_7zip_x_with_7zip(_7zip_path: str, file: str, password: str, cover_model: str, output_folder: str,
+                              filter_rule: list = None):
+    """解压指定文件（7-Zip内核）
     :param _7zip_path: 7zip路径
     :param file: 需要解压的文件路径
     :param password: 解压时使用的密码（附带测试功能）
@@ -182,25 +367,10 @@ def process_7zip_x(_7zip_path: str, file: str, password: str, cover_model: str, 
     # 实例化发送数据的队列
     queue_sender = function_queue.get_sender()
 
-    # 编写列表命令行
+    # 编写命令行
     # 同时读取stdout和stderr会导致管道堵塞，所以需要将两个输出流重定向至同一个管道中（使用switch：'bso1','bsp1',bse1'）
-    if is_need_local_pw_file(password):  # 对带特殊字符的密码进行特殊处理
-        create_cmd_pw_file(password)  # 创建临时密码文件
-        part_password = f'-y<{_CMD_PW_TEXT_FILE}'
-    else:
-        part_password = f'-p{password}'
-    command = [f'"{_7zip_path}"',
-               'x',
-               f'"{file}"',
-               '-bsp1', '-bse1', '-bso1',
-               cover_model,
-               part_password,
-               f'"-o{output_folder}"']
-    if filter_rule:
-        command = command + filter_rule
-    command = [i for i in command if i and i.strip()]  # 清理一次列表命令行
-    # 将列表命令行组合为字符串（shell=True）
-    command = ' '.join(command)
+    part_password = get_part_password_7zip(password)
+    command = build_command_x_7zip(_7zip_path, file, part_password, cover_model, output_folder, filter_rule)
     print(f'调用7zip（Popen）：{command}')
     # 调用
     process = subprocess.Popen(command,
@@ -287,15 +457,92 @@ def process_7zip_x(_7zip_path: str, file: str, password: str, cover_model: str, 
         return Result7zip.UnknownError('未知错误')
 
 
+def process_winrar_x(winrar_path: str, file: str, password: str, cover_model: str, output_folder: str,
+                     filter_rule: list = None):
+    """解压指定文件（WinRAR内核）
+    WinRAR在-ibck（无论是否带-inul）下stdout恒为空，无法读取进度与错误文本，只能发送不定进度并依靠退出码判断结果
+    :param winrar_path: WinRAR路径
+    :param file: 需要解压的文件路径
+    :param password: 解压时使用的密码（附带测试功能）
+    :param cover_model: 重名文件的覆盖模式（7-Zip的switch，内部转换为WinRAR的-o参数）
+    :param output_folder: 解压输出目录
+    :param filter_rule: 文件过滤器规则（7-Zip的-xr!格式，内部转换为WinRAR的-x参数）
+    :return: 7zip结果类"""
+    if is_password_unsupported_by_winrar(password):  # 无法传入的密码，直接返回失败结果
+        return Result7zip.ErrorCommand(_WINRAR_QUOTE_PW_ERROR)
+
+    # 实例化发送数据的队列
+    queue_sender = function_queue.get_sender()
+    # WinRAR无法提供进度信息，切换为不定进度
+    queue_sender.send_data(PROGRESS_INDETERMINATE)
+
+    command = build_command_x_winrar(winrar_path, file, password, cover_model, output_folder, filter_rule)
+    print(f'调用WinRAR（Popen）：{command}')
+
+    # 赋值给全局变量
+    global _process_running
+    try:
+        process = subprocess.Popen(command,
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
+                                   creationflags=subprocess.CREATE_NO_WINDOW,
+                                   text=True,
+                                   shell=False)
+        _process_running = process
+        # 等待结束（WinRAR无输出，使用communicate读取并清空管道）
+        process.communicate()
+        return_code = process.returncode
+    except (OSError, subprocess.SubprocessError) as error:  # 可执行文件不可用等系统级错误，归入结果类返回
+        print(f'调用WinRAR失败：{error}')
+        return Result7zip.UnknownError(f'调用WinRAR失败：{error}')
+    finally:
+        # 无论成功失败都复位界面进度状态，防止不定进度残留到下一个任务
+        queue_sender.send_data(PROGRESS_COMPLETE)
+
+    print('WinRAR返回码', return_code)
+    result = get_result_by_winrar_return_code(return_code, cover_model)
+    # 结果为”成功“时将正确密码写入结果类中
+    if isinstance(result, Result7zip.Success):
+        result.password = password
+
+    return result
+
+
+def get_result_by_winrar_return_code(return_code: int, cover_model: str = '') -> TYPES_RESULT_7ZIP:
+    """根据WinRAR的退出码获取结果类
+    :param return_code: WinRAR的退出码
+    :param cover_model: 重名文件的覆盖模式（7-Zip的switch），用于区分“全部文件被跳过”与命令行错误
+    :return: 7zip结果类"""
+    if return_code == 0:
+        return Result7zip.Success()
+    elif return_code == 1:
+        return Result7zip.Warning()
+    elif return_code == 7:
+        return Result7zip.ErrorCommand()
+    elif return_code == 8:
+        return Result7zip.NotEnoughMemory()
+    elif return_code == 10:
+        # 全部文件都因重名被跳过时返回该退出码，与命令行错误区分
+        if get_cover_switch_winrar(cover_model) == ModelCoverFile.Skip.switch_winrar:
+            return Result7zip.Skip()
+        return Result7zip.ErrorCommand()
+    elif return_code == 11:
+        return Result7zip.WrongPassword()
+    elif return_code == 255:
+        return Result7zip.UserStopped()
+    else:  # 2/3/4/5/6/9/12/13及其他：统一归为未知错误
+        error_text = _WINRAR_RETURN_TEXTS.get(return_code, f'未知的WinRAR退出码{return_code}')
+        return Result7zip.UnknownError(error_text)
+
+
 def get_temp_dirpath(dirpath: str):
     """获取根据传入路径计算的临时文件夹路径"""
     return os.path.normpath(os.path.join(dirpath, TEMP_EXTRACT_FOLDER))
 
 
-def progress_7zip_x_with_temp_folder(_7zip_path: str, file: str, password: str, cover_model: str, output_folder: str,
+def progress_7zip_x_with_temp_folder(file: str, password: str, cover_model: str, output_folder: str,
                                      filter_rule: list = None):
     """解压指定文件（解压至临时文件夹中）
-    :param _7zip_path: 7zip路径
     :param file: 需要解压的文件路径
     :param password: 解压时使用的密码（附带测试功能）
     :param cover_model: 重名文件的覆盖模式
@@ -303,7 +550,7 @@ def progress_7zip_x_with_temp_folder(_7zip_path: str, file: str, password: str, 
     :param filter_rule: 文件过滤器规则
     :return: 7zip结果类"""
     extract_dirpath_temp = get_temp_dirpath(output_folder)
-    return process_7zip_x(_7zip_path, file, password, cover_model, extract_dirpath_temp, filter_rule)
+    return process_7zip_x(file, password, cover_model, extract_dirpath_temp, filter_rule)
 
 
 def _analyse_process_return(process: subprocess.CompletedProcess):
@@ -370,7 +617,7 @@ def _read_process_stdout_get_files(process: subprocess.CompletedProcess):
 
 
 def get_smallest_file_in_archive(archive_path: str):
-    """获取压缩文件中最小的文件内部路径"""
+    """获取压缩文件中最小的文件内部路径（固定使用7-Zip：WinRAR内核没有可用的列表接口）"""
     print('提取压缩文件内部文件路径')
     # 测试一次压缩文件，读取返回信息
     _7ZIP_PATH = get_7zip_path()

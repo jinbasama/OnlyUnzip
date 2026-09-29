@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QFileDialog
 
 from components.page_setting.res.icon_base64 import ICON_CHOOSE, ICON_OPEN
 from components.page_setting.res.ui_page_setting import Ui_Form
+from common.class_7zip import get_kernel_class, get_kernel_value
 
 
 class SettingViewer(QWidget):
@@ -36,6 +37,8 @@ class SettingViewer(QWidget):
     ChangeExtractFilter = Signal(bool, name="修改解压文件过滤器")
     ChangeExtractFilterRule = Signal(str, name="修改解压文件过滤器规则")
     Change7ZipPath = Signal(str, name="修改7zip路径")
+    ChangeKernel = Signal(str, name="修改解压内核")
+    ChangeWinRARPath = Signal(str, name="修改WinRAR路径")
     ChangeTopWindow = Signal(bool, name="修改窗口置顶")
     ChangeLockSize = Signal(bool, name="修改锁定窗口大小")
 
@@ -52,6 +55,7 @@ class SettingViewer(QWidget):
         self.ui.comboBox_break_folder.installEventFilter(self)
         self.ui.comboBox_pw_position.installEventFilter(self)
         self.ui.comboBox_cover_file.installEventFilter(self)
+        self.ui.comboBox_kernel.installEventFilter(self)
 
     def lock(self):
         """锁定全部设置项，禁止修改"""
@@ -87,6 +91,15 @@ class SettingViewer(QWidget):
                 else:
                     self.ui.lineEdit_7zip_path.setText(path)
 
+    def _choose_winrar_path(self):
+        """打开对话框，选择指定的WinRAR路径"""
+        path, _ = QFileDialog.getOpenFileName(self, "选择WinRAR路径", filter="WinRAR.exe (WinRAR.exe)")
+        if path:
+            path = os.path.normpath(path)
+            # 仅接受WinRAR.exe，避免选中同目录下的Rar.exe/UnRAR.exe（不支持解压zip/7z）
+            if os.path.basename(path) == 'WinRAR.exe':
+                self.ui.lineEdit_winrar_path.setText(path)
+
     def _open_dirpath(self):
         """打开指定的解压目录"""
         dirpath = self.ui.lineEdit_extract_output_folder.text()
@@ -97,6 +110,7 @@ class SettingViewer(QWidget):
         self.ui.toolButton_choose.setIcon(lzytools_Qt.convert_base64_image_to_pixmap(ICON_CHOOSE))
         self.ui.toolButton_open.setIcon(lzytools_Qt.convert_base64_image_to_pixmap(ICON_OPEN))
         self.ui.toolButton_choose_7zip_path.setIcon(lzytools_Qt.convert_base64_image_to_pixmap(ICON_CHOOSE))
+        self.ui.toolButton_choose_winrar_path.setIcon(lzytools_Qt.convert_base64_image_to_pixmap(ICON_CHOOSE))
 
     def _set_enable(self, is_enable: bool):
         self.ui.radioButton_mode1_test.setEnabled(is_enable)
@@ -104,7 +118,10 @@ class SettingViewer(QWidget):
         self.ui.checkBox_read_password_from_filename.setEnabled(is_enable)
         self.ui.checkBox_try_unknown_filetype.setEnabled(is_enable)
         self.ui.checkBox_ignore_exclude_list.setEnabled(is_enable)
+        self.ui.comboBox_kernel.setEnabled(is_enable)
         self.ui.lineEdit_7zip_path.setEnabled(is_enable)
+        self.ui.lineEdit_winrar_path.setEnabled(is_enable)
+        self.ui.toolButton_choose_winrar_path.setEnabled(is_enable)
         self.ui.widget_test.setEnabled(is_enable)
         self.ui.widget_extract.setEnabled(is_enable)
 
@@ -216,6 +233,18 @@ class SettingViewer(QWidget):
         :param option: 对应的comboBox选项文本"""
         self.ui.comboBox_cover_file.setCurrentText(option)
 
+    def set_setting_cover_file_options(self, options: list, current_option: str):
+        """解压模式选项
+        按当前内核更新重名文件覆盖模式的可选项（WinRAR内核没有“重命名新/旧文件”档位）
+        :param options: 该内核支持的可选项文本清单
+        :param current_option: 当前的选项文本"""
+        combo = self.ui.comboBox_cover_file
+        combo.blockSignals(True)  # 重建选项不视为用户的修改操作
+        combo.clear()
+        combo.addItems(options)
+        combo.setCurrentText(current_option)
+        combo.blockSignals(False)
+
     def set_setting_break_folder(self, is_enable: bool):
         """解压模式选项
         设置完成单个解压任务后是否解散文件夹"""
@@ -251,6 +280,16 @@ class SettingViewer(QWidget):
     def set_setting_7zip_path(self, filepath: str):
         """设置7zip路径"""
         self.ui.lineEdit_7zip_path.setText(filepath)
+
+    def set_setting_kernel(self, kernel: str):
+        """设置解压内核
+        :param kernel: 内核取值（7zip/winrar）"""
+        self.ui.comboBox_kernel.setCurrentText(get_kernel_class(kernel).text)
+
+    def set_setting_winrar_path(self, filepath: str):
+        """设置WinRAR路径"""
+        self.ui.lineEdit_winrar_path.setText(filepath)
+        self.ui.lineEdit_winrar_path.setToolTip(filepath)
 
     def set_top_window(self, is_enable: bool):
         """设置是否置顶窗口"""
@@ -306,6 +345,10 @@ class SettingViewer(QWidget):
             lambda: self.ChangeExtractFilterRule.emit(self.ui.plainTextEdit_extract_filter_rule.toPlainText()))
         # 自定义7Zip路径
         self.ui.lineEdit_7zip_path.textChanged.connect(self.Change7ZipPath.emit)
+        # 解压内核
+        self.ui.comboBox_kernel.currentTextChanged.connect(self._change_kernel)
+        # 自定义WinRAR路径
+        self.ui.lineEdit_winrar_path.textChanged.connect(self.ChangeWinRARPath.emit)
         # 置顶窗口
         self.ui.checkBox_top_window.stateChanged.connect(self.ChangeTopWindow.emit)
         # 锁定窗口大小
@@ -327,6 +370,10 @@ class SettingViewer(QWidget):
         elif self.ui.radioButton_mode2_extract_same_folder.isChecked():
             self.ChangeExtractModelSameFolder.emit(True)
 
+    def _change_kernel(self):
+        """修改解压内核（传递内核取值）"""
+        self.ChangeKernel.emit(get_kernel_value(self.ui.comboBox_kernel.currentText()))
+
     def eventFilter(self, obj, event):
         # 忽略ComboBox的滚轮事件
         if obj == self.ui.comboBox_break_folder and event.type() == QEvent.Wheel:
@@ -334,6 +381,8 @@ class SettingViewer(QWidget):
         elif obj == self.ui.comboBox_cover_file and event.type() == QEvent.Wheel:
             return True
         elif obj == self.ui.comboBox_pw_position and event.type() == QEvent.Wheel:
+            return True
+        elif obj == self.ui.comboBox_kernel and event.type() == QEvent.Wheel:
             return True
         return super().eventFilter(obj, event)
 

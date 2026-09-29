@@ -2,7 +2,8 @@
 # 用于接收Viewer的信号，并在选项修改时通过Model修改本地配置文件，并通知Viewer更新
 from PySide6.QtCore import QObject, Signal
 
-from common.class_7zip import ModelArchive, ModelExtract, TYPES_MODEL_ARCHIVE
+from common.class_7zip import ModelArchive, ModelExtract, ModelCoverFile, Kernel, get_cover_file_texts, \
+    get_cover_file_display_text, TYPES_MODEL_ARCHIVE
 from components.page_setting.setting_model import SettingModel
 from components.page_setting.setting_viewer import SettingViewer
 
@@ -65,6 +66,28 @@ class SettingPresenter(QObject):
         else:
             raise Exception(archive_model, "错误的设置项")
 
+    def change_kernel(self, kernel: str):
+        """手工修改解压内核"""
+        self.model.set_kernel(kernel)
+        self._fallback_cover_model_by_kernel()
+        self._update_cover_file_options()
+
+    def _fallback_cover_model_by_kernel(self):
+        """按当前内核回落无效的重名文件覆盖模式（WinRAR内核没有“重命名新/旧文件”档位）"""
+        kernel = self.model.get_kernel()
+        cover_model = self.model.get_model_cover()
+        if kernel == Kernel.WinRAR.value and isinstance(cover_model, (ModelCoverFile.RenameNew,
+                                                                     ModelCoverFile.RenameOld)):
+            self.model.set_model_cover(ModelCoverFile.Rename())
+
+    def _update_cover_file_options(self):
+        """按当前内核更新重名文件覆盖模式的可选项与显示值"""
+        kernel = self.model.get_kernel()
+        cover_model = self.model.get_model_cover()
+        # 显示的选项文本取该内核下等价于当前设置的档位（设置值本身保持不变）
+        display_text = get_cover_file_display_text(cover_model, kernel)
+        self.viewer.set_setting_cover_file_options(get_cover_file_texts(kernel), display_text)
+
     def change_unknown_filetype(self, is_enable: bool):
         """手工修改是否尝试处理未知格式的文件"""
         self.viewer.set_setting_is_try_unknown_filetype(is_enable)
@@ -110,6 +133,8 @@ class SettingPresenter(QObject):
         self.viewer.ChangeExtractFilter.connect(self.model.set_extract_filter_is_enable)
         self.viewer.ChangeExtractFilterRule.connect(self.model.set_extract_filter_rules)
         self.viewer.Change7ZipPath.connect(self.model.set_7zip_path)
+        self.viewer.ChangeKernel.connect(self.change_kernel)
+        self.viewer.ChangeWinRARPath.connect(self.model.set_winrar_path)
         self.viewer.ChangeTopWindow.connect(self.model.set_top_window_is_enable)
         self.viewer.ChangeTopWindow.connect(self.SignalTopWindow.emit)
         self.viewer.ChangeLockSize.connect(self.model.set_lock_size_is_enable)
@@ -162,6 +187,12 @@ class SettingPresenter(QObject):
         self.viewer.set_setting_filter_rule(self.model.get_extract_filter_rules_str())
 
         self.viewer.set_setting_7zip_path(self.model.get_7zip_path())
+
+        self.viewer.set_setting_kernel(self.model.get_kernel())
+        self.viewer.set_setting_winrar_path(self.model.get_winrar_path())
+        # 覆盖模式的可选项取决于内核，需在设置内核之后更新
+        self._fallback_cover_model_by_kernel()
+        self._update_cover_file_options()
 
         self.viewer.set_top_window(self.model.get_top_window_is_enable())
 

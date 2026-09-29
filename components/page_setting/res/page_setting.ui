@@ -484,6 +484,68 @@
         </layout>
        </item>
        <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_kernel">
+         <item>
+          <widget class="QLabel" name="label_kernel">
+           <property name="text">
+            <string>解压内核</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboBox_kernel">
+           <property name="focusPolicy">
+            <enum>Qt::FocusPolicy::WheelFocus</enum>
+           </property>
+           <property name="contextMenuPolicy">
+            <enum>Qt::ContextMenuPolicy::DefaultContextMenu</enum>
+           </property>
+           <property name="toolTip">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;解压时使用的内核。&lt;/p&gt;&lt;p&gt;7-Zip：使用程序自带的7zip（默认）。&lt;/p&gt;&lt;p&gt;WinRAR：使用系统中安装的WinRAR，需要指定WinRAR路径（不支持含双引号的密码）。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="duplicatesEnabled">
+            <bool>false</bool>
+           </property>
+           <item>
+            <property name="text">
+             <string>7-Zip</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>WinRAR</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_winrar_path">
+         <property name="text">
+          <string>WinRAR路径</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_winrar">
+         <item>
+          <widget class="QLineEdit" name="lineEdit_winrar_path">
+           <property name="toolTip">
+            <string>未设置时使用默认路径 C:/Program Files/WinRAR/WinRAR.exe</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="toolButton_choose_winrar_path">
+           <property name="text">
+            <string>c</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
         <widget class="Line" name="line_3">
          <property name="orientation">
           <enum>Qt::Orientation::Horizontal</enum>

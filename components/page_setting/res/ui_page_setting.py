@@ -306,6 +306,46 @@ class Ui_Form(object):
 
         self.verticalLayout.addLayout(self.horizontalLayout_7)
 
+        self.horizontalLayout_kernel = QHBoxLayout()
+        self.horizontalLayout_kernel.setObjectName(u"horizontalLayout_kernel")
+        self.label_kernel = QLabel(self.scrollAreaWidgetContents)
+        self.label_kernel.setObjectName(u"label_kernel")
+
+        self.horizontalLayout_kernel.addWidget(self.label_kernel)
+
+        self.comboBox_kernel = QComboBox(self.scrollAreaWidgetContents)
+        self.comboBox_kernel.addItem("")
+        self.comboBox_kernel.addItem("")
+        self.comboBox_kernel.setObjectName(u"comboBox_kernel")
+        self.comboBox_kernel.setFocusPolicy(Qt.FocusPolicy.WheelFocus)
+        self.comboBox_kernel.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        self.comboBox_kernel.setDuplicatesEnabled(False)
+
+        self.horizontalLayout_kernel.addWidget(self.comboBox_kernel)
+
+
+        self.verticalLayout.addLayout(self.horizontalLayout_kernel)
+
+        self.label_winrar_path = QLabel(self.scrollAreaWidgetContents)
+        self.label_winrar_path.setObjectName(u"label_winrar_path")
+
+        self.verticalLayout.addWidget(self.label_winrar_path)
+
+        self.horizontalLayout_winrar = QHBoxLayout()
+        self.horizontalLayout_winrar.setObjectName(u"horizontalLayout_winrar")
+        self.lineEdit_winrar_path = QLineEdit(self.scrollAreaWidgetContents)
+        self.lineEdit_winrar_path.setObjectName(u"lineEdit_winrar_path")
+
+        self.horizontalLayout_winrar.addWidget(self.lineEdit_winrar_path)
+
+        self.toolButton_choose_winrar_path = QToolButton(self.scrollAreaWidgetContents)
+        self.toolButton_choose_winrar_path.setObjectName(u"toolButton_choose_winrar_path")
+
+        self.horizontalLayout_winrar.addWidget(self.toolButton_choose_winrar_path)
+
+
+        self.verticalLayout.addLayout(self.horizontalLayout_winrar)
+
         self.line_3 = QFrame(self.scrollAreaWidgetContents)
         self.line_3.setObjectName(u"line_3")
         self.line_3.setFrameShape(QFrame.Shape.HLine)
@@ -429,6 +469,18 @@ class Ui_Form(object):
 #endif // QT_CONFIG(tooltip)
         self.label_7.setText(QCoreApplication.translate("Form", u"\u81ea\u5b9a\u4e497Zip\u8def\u5f84", None))
         self.toolButton_choose_7zip_path.setText(QCoreApplication.translate("Form", u"c", None))
+        self.label_kernel.setText(QCoreApplication.translate("Form", u"\u89e3\u538b\u5185\u6838", None))
+        self.comboBox_kernel.setItemText(0, QCoreApplication.translate("Form", u"7-Zip", None))
+        self.comboBox_kernel.setItemText(1, QCoreApplication.translate("Form", u"WinRAR", None))
+
+#if QT_CONFIG(tooltip)
+        self.comboBox_kernel.setToolTip(QCoreApplication.translate("Form", u"<html><head/><body><p>\u89e3\u538b\u65f6\u4f7f\u7528\u7684\u5185\u6838\u3002</p><p>7-Zip\uff1a\u4f7f\u7528\u7a0b\u5e8f\u81ea\u5e26\u76847zip\uff08\u9ed8\u8ba4\uff09\u3002</p><p>WinRAR\uff1a\u4f7f\u7528\u7cfb\u7edf\u4e2d\u5b89\u88c5\u7684WinRAR\uff0c\u9700\u8981\u6307\u5b9aWinRAR\u8def\u5f84\uff08\u4e0d\u652f\u6301\u542b\u53cc\u5f15\u53f7\u7684\u5bc6\u7801\uff09\u3002</p></body></html>", None))
+#endif // QT_CONFIG(tooltip)
+        self.label_winrar_path.setText(QCoreApplication.translate("Form", u"WinRAR\u8def\u5f84", None))
+#if QT_CONFIG(tooltip)
+        self.lineEdit_winrar_path.setToolTip(QCoreApplication.translate("Form", u"\u672a\u8bbe\u7f6e\u65f6\u4f7f\u7528\u9ed8\u8ba4\u8def\u5f84 C:/Program Files/WinRAR/WinRAR.exe", None))
+#endif // QT_CONFIG(tooltip)
+        self.toolButton_choose_winrar_path.setText(QCoreApplication.translate("Form", u"c", None))
 #if QT_CONFIG(tooltip)
         self.checkBox_top_window.setToolTip(QCoreApplication.translate("Form", u"\u4fdd\u6301\u7a97\u53e3\u5728\u524d\u53f0", None))
 #endif // QT_CONFIG(tooltip)

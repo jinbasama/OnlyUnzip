@@ -32,31 +32,118 @@ class ModelExtract:
 
 
 class ModelCoverFile:
-    """文件覆盖模式，跳过/覆盖/重命名新文件/重命名旧文件"""
+    """文件覆盖模式，跳过/覆盖/重命名新文件/重命名旧文件/重命名（WinRAR内核只有单个重命名档）"""
 
     class Skip:
         """跳过"""
         text = '跳过重复文件'
         value = 'skip'
         switch = '-aos'
+        switch_winrar = '-o-'
 
     class Overwrite:
         """覆盖"""
         text = '覆盖重复文件'
         value = 'overwrite'
         switch = '-aoa'
+        switch_winrar = '-o+'
 
     class RenameNew:
         """重命名新文件"""
         text = '重命名新文件'
         value = 'rename_new'
         switch = '-aou'
+        switch_winrar = '-or'
 
     class RenameOld:
         """重命名旧文件"""
         text = '重命名旧文件'
         value = 'rename_old'
         switch = '-aot'
+        switch_winrar = '-or'
+
+    class Rename:
+        """重命名（WinRAR内核的独立档位，7z内核下等价于重命名新文件）"""
+        text = '重命名'
+        value = 'rename'
+        switch = '-aou'
+        switch_winrar = '-or'
+
+
+class Kernel:
+    """解压内核，7zip/WinRAR"""
+
+    class SevenZip:
+        """7-Zip（默认）"""
+        text = '7-Zip'
+        value = '7zip'
+
+    class WinRAR:
+        """WinRAR"""
+        text = 'WinRAR'
+        value = 'winrar'
+
+
+# 内核取值与各内核支持的覆盖模式档位（列表顺序即设置页下拉框顺序）
+TYPES_KERNEL = Union[Kernel.SevenZip, Kernel.WinRAR]
+
+CLASSES_KERNEL = [Kernel.SevenZip, Kernel.WinRAR]
+
+CLASSES_COVER_FILE = {Kernel.SevenZip.value: [ModelCoverFile.Overwrite, ModelCoverFile.Skip,
+                                              ModelCoverFile.RenameNew, ModelCoverFile.RenameOld],
+                      Kernel.WinRAR.value: [ModelCoverFile.Overwrite, ModelCoverFile.Skip,
+                                            ModelCoverFile.Rename]}
+
+CLASSES_COVER_FILE_ALL = [ModelCoverFile.Overwrite, ModelCoverFile.Skip,
+                          ModelCoverFile.RenameNew, ModelCoverFile.RenameOld, ModelCoverFile.Rename]
+
+
+def get_kernel_class(value: str):
+    """根据内核取值获取对应的内核类，无效取值返回7-Zip"""
+    for kernel_class in CLASSES_KERNEL:
+        if kernel_class.value == value:
+            return kernel_class
+    return Kernel.SevenZip
+
+
+def get_kernel_value(text: str) -> str:
+    """根据内核文本获取内核取值，无效文本返回7-Zip的取值"""
+    for kernel_class in CLASSES_KERNEL:
+        if kernel_class.text == text:
+            return kernel_class.value
+    return Kernel.SevenZip.value
+
+
+def get_cover_file_classes(kernel_value: str) -> list:
+    """获取指定内核支持的覆盖模式类清单，无效取值返回7-Zip的档位"""
+    return CLASSES_COVER_FILE.get(kernel_value, CLASSES_COVER_FILE[Kernel.SevenZip.value])
+
+
+def get_cover_file_texts(kernel_value: str) -> list:
+    """获取指定内核支持的覆盖模式文本清单"""
+    return [cover_class.text for cover_class in get_cover_file_classes(kernel_value)]
+
+
+def get_cover_file_class(text_or_value: str):
+    """根据选项文本或取值获取覆盖模式类，无效值返回None"""
+    for cover_class in CLASSES_COVER_FILE_ALL:
+        if text_or_value in (cover_class.text, cover_class.value):
+            return cover_class
+    return None
+
+
+def get_cover_file_display_text(cover_model, kernel_value: str) -> str:
+    """获取覆盖模式在指定内核的下拉框中应显示的选项文本
+    内核不支持的档位显示为命令行参数等价的档位（例如7z内核下的“重命名”显示为“重命名新文件”）
+    :param cover_model: 覆盖模式类的实例"""
+    cover_classes = get_cover_file_classes(kernel_value)
+    for cover_class in cover_classes:
+        if cover_class.text == cover_model.text:
+            return cover_class.text
+    for cover_class in cover_classes:
+        if cover_class.switch == cover_model.switch:
+            return cover_class.text
+    return cover_classes[0].text
 
 
 class ModelBreakFolder:
@@ -182,6 +269,11 @@ class Result7zip:
         color = [240, 128, 128]
         result_state = '失败'
 
+        def __init__(self, error_text: str = None):
+            """初始化
+            :param error_text: 附加的错误说明（例如密码无法传入时对用户的提示）"""
+            self.error_text = error_text
+
     class NotEnoughMemory:
         """没有足够的硬盘空间"""
         return_code = 8
@@ -216,7 +308,7 @@ TYPES_MODEL_ARCHIVE = Union[ModelArchive.Extract, ModelArchive.Test]
 TYPES_MODEL_EXTRACT = Union[ModelExtract.Smart, ModelExtract.SameFolder, ModelExtract.Direct]
 
 TYPES_MODEL_COVER_FILE = Union[ModelCoverFile.Skip, ModelCoverFile.Overwrite,
-ModelCoverFile.RenameNew, ModelCoverFile.RenameOld]
+ModelCoverFile.RenameNew, ModelCoverFile.RenameOld, ModelCoverFile.Rename]
 
 TYPES_MODEL_BREAK_FOLDER = Union[ModelBreakFolder.MoveBottom, ModelBreakFolder.MoveToTop, ModelBreakFolder.MoveFiles]
 

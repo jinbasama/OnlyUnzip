@@ -4,8 +4,9 @@ import configparser
 import os
 from typing import Union
 
-from common.class_7zip import ModelArchive, Position, ModelExtract, ModelCoverFile, ModelBreakFolder, \
-    TYPES_MODEL_ARCHIVE, TYPES_MODEL_BREAK_FOLDER, TYPES_POSITION, TYPES_MODEL_COVER_FILE, TYPES_MODEL_EXTRACT
+from common.class_7zip import ModelArchive, Position, ModelExtract, ModelCoverFile, ModelBreakFolder, Kernel, \
+    CLASSES_KERNEL, get_cover_file_class, TYPES_MODEL_ARCHIVE, TYPES_MODEL_BREAK_FOLDER, TYPES_POSITION, \
+    TYPES_MODEL_COVER_FILE, TYPES_MODEL_EXTRACT
 
 _CONFIG_FILE = 'setting.ini'  # 配置文件的相对路径（默认在主程序的同目录下）
 _SPLIT_WORD = '丨'
@@ -35,7 +36,9 @@ class SettingModel:
         self._break_folder = _ChildSettingBreakFolder(self.config)
         self._extract_output_folder = _ChildSettingExtractOutputFolder(self.config)
         self._extract_filter = _ChildSettingExtractFilter(self.config)
+        self._kernel = _ChildSettingKernel(self.config)
         self._7zip_path = _ChildSetting7ZipPath(self.config)
+        self._winrar_path = _ChildSettingWinRARPath(self.config)
         self._top_window = _ChildSettingTopWindow(self.config)
         self._lock_size = _ChildSettingLockSize(self.config)
 
@@ -184,11 +187,23 @@ class SettingModel:
     def set_extract_filter_rules(self, rules: str):
         self._extract_filter.set_rules(rules)
 
+    def get_kernel(self):
+        return self._kernel.read()
+
+    def set_kernel(self, kernel: str):
+        self._kernel.set(kernel)
+
     def get_7zip_path(self):
         return self._7zip_path.read()
 
     def set_7zip_path(self, path: str):
         self._7zip_path.set(path)
+
+    def get_winrar_path(self):
+        return self._winrar_path.read()
+
+    def set_winrar_path(self, path: str):
+        self._winrar_path.set(path)
 
     def get_top_window_is_enable(self):
         return self._top_window.read()
@@ -477,28 +492,38 @@ class _ChildSettingModelCover(_ModuleChildSetting):
         self._default_value = ModelCoverFile.Overwrite()
 
     def read(self) -> TYPES_MODEL_COVER_FILE:
-        """读取设置项"""
+        """读取设置项（兼容选项文本与取值文本）"""
         value = self._read_key(self.section, self.key, self._default_value)
-        # 将读取的文本值转换为对应的自定义类
-        if isinstance(value, (ModelCoverFile.Overwrite, ModelCoverFile.Skip, ModelCoverFile.RenameNew,
-                              ModelCoverFile.RenameOld)):
+        if not isinstance(value, str):
             return value
-        elif value == ModelCoverFile.Overwrite.text:
-            return ModelCoverFile.Overwrite()
-        elif value == ModelCoverFile.Skip.text:
-            return ModelCoverFile.Skip()
-        elif value == ModelCoverFile.RenameNew.text:
-            return ModelCoverFile.RenameNew()
-        elif value == ModelCoverFile.RenameOld.text:
-            return ModelCoverFile.RenameOld()
-        else:
+        cover_class = get_cover_file_class(value)
+        if cover_class is None:
             raise ValueError(self.section, self.key, '无效的设置项值')
+        return cover_class()
 
     def set(self, value: TYPES_MODEL_COVER_FILE):
-        """设置设置项"""
-        if not isinstance(value, str):
-            value = value.value
+        """设置设置项（统一存储为选项文本，与read保持一致）
+        :param value: 覆盖模式类的实例，或选项/取值文本"""
+        if isinstance(value, str):
+            cover_class = get_cover_file_class(value)
+            value = cover_class.text if cover_class else value
+        else:
+            value = value.text
         self._set_value(self.section, self.key, value)
+
+
+class _ChildSettingKernel(_ModuleChildSettingSingleText):
+    """设置项 解压内核"""
+
+    def __init__(self, config):
+        super().__init__(config, section='Kernel', key='kernel', default_value=Kernel.SevenZip.value)
+
+    def read(self) -> str:
+        """读取设置项，无效取值返回默认内核"""
+        value = super().read()
+        if value not in [kernel_class.value for kernel_class in CLASSES_KERNEL]:
+            return self._default_value
+        return value
 
 
 class _ChildSettingBreakFolder(_ModuleChildSetting):
@@ -651,6 +676,13 @@ class _ChildSetting7ZipPath(_ModuleChildSettingSingleText):
 
     def __init__(self, config):
         super().__init__(config, section='7ZipPath', key='filepath', default_value='')
+
+
+class _ChildSettingWinRARPath(_ModuleChildSettingSingleText):
+    """设置项 WinRAR路径"""
+
+    def __init__(self, config):
+        super().__init__(config, section='WinRARPath', key='filepath', default_value='')
 
 
 class _ChildSettingTopWindow(_ModuleChildSettingSingleEnable):
